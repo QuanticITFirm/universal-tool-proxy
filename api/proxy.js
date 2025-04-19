@@ -1,19 +1,72 @@
-export default async function handler(req, res) {
-  const targetUrl = req.query.url;
+
+import { NextRequest, NextResponse } from "next/server";
+import { request } from "follow-redirects";
+import { parse } from "url";
+
+export const config = {
+  runtime: "edge"
+};
+
+export default async function handler(req) {
+  const { searchParams } = new URL(req.url);
+  const targetUrl = searchParams.get("url");
+  const rawMode = searchParams.get("raw") === "true";
 
   if (!targetUrl) {
-    return res.status(400).json({ error: "Missing URL parameter." });
+    return new Response("Missing ?url parameter", { status: 400 });
   }
 
-  try {
-    const response = await fetch(targetUrl, {
+  return new Promise((resolve, reject) => {
+    const options = {
+      ...parse(targetUrl),
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
       }
+    };
+
+    const reqRedirect = request(options, (res) => {
+      let data = "";
+
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+
+      res.on("end", () => {
+        if (rawMode) {
+          resolve(
+            new Response(
+              JSON.stringify({
+                finalUrl: res.responseUrl || targetUrl,
+                status: res.statusCode,
+                html: data
+              }),
+              {
+                status: 200,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Access-Control-Allow-Origin": "*"
+                }
+              }
+            )
+          );
+        } else {
+          resolve(
+            new Response(data, {
+              status: 200,
+              headers: {
+                "Content-Type": "text/html",
+                "Access-Control-Allow-Origin": "*"
+              }
+            })
+          );
+        }
+      });
     });
-    const data = await response.text();
-    res.status(200).send(data);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch URL content." });
-  }
+
+    reqRedirect.on("error", (err) => {
+      resolve(new Response("Proxy Error: " + err.message, { status: 500 }));
+    });
+
+    reqRedirect.end();
+  });
 }
