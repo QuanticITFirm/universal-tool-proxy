@@ -1,72 +1,30 @@
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-import { NextRequest, NextResponse } from "next/server";
-import { request } from "follow-redirects";
-import { parse } from "url";
-
-export const config = {
-  runtime: "edge"
-};
-
-export default async function handler(req) {
-  const { searchParams } = new URL(req.url);
-  const targetUrl = searchParams.get("url");
-  const rawMode = searchParams.get("raw") === "true";
-
-  if (!targetUrl) {
-    return new Response("Missing ?url parameter", { status: 400 });
+  if (req.method === 'OPTIONS') {
+    res.status(200).end(); // Preflight
+    return;
   }
 
-  return new Promise((resolve, reject) => {
-    const options = {
-      ...parse(targetUrl),
+  const targetUrl = req.query.url;
+
+  if (!targetUrl) {
+    res.status(400).json({ error: 'Missing url parameter' });
+    return;
+  }
+
+  try {
+    const response = await fetch(targetUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-      }
-    };
-
-    const reqRedirect = request(options, (res) => {
-      let data = "";
-
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        if (rawMode) {
-          resolve(
-            new Response(
-              JSON.stringify({
-                finalUrl: res.responseUrl || targetUrl,
-                status: res.statusCode,
-                html: data
-              }),
-              {
-                status: 200,
-                headers: {
-                  "Content-Type": "application/json",
-                  "Access-Control-Allow-Origin": "*"
-                }
-              }
-            )
-          );
-        } else {
-          resolve(
-            new Response(data, {
-              status: 200,
-              headers: {
-                "Content-Type": "text/html",
-                "Access-Control-Allow-Origin": "*"
-              }
-            })
-          );
-        }
-      });
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36',
+      },
     });
-
-    reqRedirect.on("error", (err) => {
-      resolve(new Response("Proxy Error: " + err.message, { status: 500 }));
-    });
-
-    reqRedirect.end();
-  });
+    const html = await response.text();
+    res.status(200).send(html);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch target URL' });
+  }
 }
