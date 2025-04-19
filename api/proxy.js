@@ -1,43 +1,35 @@
-import { http, https } from 'follow-redirects';
+import { https } from 'follow-redirects';
+import { createGunzip } from 'zlib';
 
-export default async function handler(req, res) {
-  const targetUrl = req.query.url;
-  if (!targetUrl) {
-    return res.status(400).json({ error: 'Missing URL' });
+export default function handler(req, res) {
+  const { url } = req.query;
+
+  if (!url || !url.startsWith('http')) {
+    return res.status(400).json({ error: 'Invalid URL' });
   }
 
-  const client = targetUrl.startsWith('https') ? https : http;
-
-  const visitedUrls = [];
-  const options = {
+  https.get(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-      Accept: '*/*',
-    },
-    maxRedirects: 10,
-  };
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Encoding': 'gzip,deflate'
+    }
+  }, response => {
+    let stream = response;
 
-  client.get(targetUrl, options, (response) => {
-    response.setEncoding('utf8');
-    let body = '';
-
-    // Track redirects
-    if (response.responseUrl) {
-      visitedUrls.push(response.responseUrl);
+    // Decompress if needed
+    const encoding = response.headers['content-encoding'];
+    if (encoding === 'gzip') {
+      stream = response.pipe(createGunzip());
     }
 
-    response.on('data', (chunk) => {
-      body += chunk;
+    let data = '';
+    stream.on('data', chunk => data += chunk);
+    stream.on('end', () => {
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate');
+      res.status(200).send(data);
     });
-
-    response.on('end', () => {
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate'); // Vercel cache
-      res.setHeader('X-Redirect-Hops', visitedUrls.join(' → '));
-      res.status(200).send(body);
-    });
-  }).on('error', (err) => {
-    console.error(err);
-    res.status(500).json({ error: 'Proxy request failed', details: err.message });
+  }).on('error', err => {
+    res.status(500).json({ error: 'Failed to fetch page', detail: err.message });
   });
 }
