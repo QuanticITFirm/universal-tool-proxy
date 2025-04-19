@@ -1,24 +1,20 @@
 export default async function handler(req, res) {
   const { url } = req.query;
 
-  if (!url || !url.startsWith("http")) {
-    return res.status(400).json({ error: "Invalid or missing URL" });
-  }
+  if (!url) return res.status(400).send("Missing URL");
 
   try {
     const response = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0 Safari/537.36"
+      }
     });
-    const contentType = response.headers.get("content-type");
 
-    if (contentType && contentType.includes("application/json")) {
-      const data = await response.json();
-      return res.status(200).json(data);
-    } else {
-      const text = await response.text();
-      return res.status(200).send(text);
-    }
+    const html = await response.text();
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.status(200).send(html);
   } catch (error) {
-    return res.status(500).json({ error: "Failed to fetch the URL" });
+    res.status(500).json({ error: "Failed to fetch" });
   }
 }
