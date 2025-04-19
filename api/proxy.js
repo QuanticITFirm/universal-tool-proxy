@@ -1,35 +1,32 @@
 import { https } from 'follow-redirects';
-import { createGunzip } from 'zlib';
 
-export default function handler(req, res) {
-  const { url } = req.query;
+export default async function handler(req, res) {
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.status(400).send("Missing URL");
 
-  if (!url || !url.startsWith('http')) {
-    return res.status(400).json({ error: 'Invalid URL' });
-  }
-
-  https.get(url, {
+  const options = {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml',
-      'Accept-Encoding': 'gzip,deflate'
-    }
-  }, response => {
-    let stream = response;
+      'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    },
+    maxRedirects: 10
+  };
 
-    // Decompress if needed
-    const encoding = response.headers['content-encoding'];
-    if (encoding === 'gzip') {
-      stream = response.pipe(createGunzip());
-    }
-
-    let data = '';
-    stream.on('data', chunk => data += chunk);
-    stream.on('end', () => {
-      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate');
-      res.status(200).send(data);
+  const urlObj = new URL(targetUrl);
+  const reqStream = https.request(urlObj, options, streamRes => {
+    let rawData = '';
+    streamRes.on('data', chunk => rawData += chunk);
+    streamRes.on('end', () => {
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('X-Final-URL', streamRes.responseUrl || targetUrl);
+      res.status(200).send(rawData);
     });
-  }).on('error', err => {
-    res.status(500).json({ error: 'Failed to fetch page', detail: err.message });
   });
+
+  reqStream.on('error', err => {
+    console.error("Fetch error:", err.message);
+    res.status(500).send("Proxy request failed");
+  });
+
+  reqStream.end();
 }
